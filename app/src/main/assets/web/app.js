@@ -249,8 +249,6 @@
 
   // ── Play ──────────────────────────────────────────────────
   let currentName = "";
-  let qualityKickTimer = null;
-  let needsQualityKick = false;
   let currentPlayUrl = "";
 
   function playChannel(ch) {
@@ -283,14 +281,6 @@
   window._onNativePlaying = () => {
     npLabel.textContent = "▶ " + currentName;
     enterFullscreen();
-    if (needsQualityKick) {
-      needsQualityKick = false;
-      clearTimeout(qualityKickTimer);
-      if (typeof NativePlayer !== "undefined" && currentPlayUrl) {
-        NativePlayer.stop();
-        setTimeout(() => { NativePlayer.play(currentPlayUrl); }, 500);
-      }
-    }
   };
   window._onNativeError = (what, extra) => {
     npLabel.textContent = `⚠ Playback error (${what})`;
@@ -308,20 +298,11 @@
   function playURL(url, name) {
     currentName = name;
     currentPlayUrl = url;
-    needsQualityKick = true;
     npLabel.textContent = "⏳ Loading " + name + "…";
-    clearTimeout(qualityKickTimer);
 
     if (typeof NativePlayer !== "undefined") {
       NativePlayer.stop();
       NativePlayer.play(url);
-      qualityKickTimer = setTimeout(() => {
-        if (needsQualityKick) {
-          needsQualityKick = false;
-          NativePlayer.stop();
-          setTimeout(() => { NativePlayer.play(url); }, 500);
-        }
-      }, 8000);
     }
   }
 
