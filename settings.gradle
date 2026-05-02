@@ -1,0 +1,2 @@
+rootProject.name = 'iptv-phone'
+include ':app'

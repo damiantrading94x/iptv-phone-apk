@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>IPTV Player</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0a0a0a; --bg2: #141414; --bg3: #1e1e1e;
+  --fg: #e8e8e8; --fg-dim: #777; --accent: #e50914;
+  --accent2: #b0060f; --radius: 10px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent; }
+
+/* ── Top bar ── */
+#topbar {
+  height: 52px; background: var(--bg2); display: flex; align-items: center;
+  padding: 0 16px; padding-top: var(--safe-top); gap: 12px;
+  border-bottom: 1px solid #222; position: relative; z-index: 10;
+}
+.brand { font-weight: 800; font-size: 20px; color: var(--accent); letter-spacing: -0.5px; }
+.topbar-spacer { flex: 1; }
+.search-toggle {
+  width: 38px; height: 38px; border-radius: 50%; background: var(--bg3);
+  border: none; color: var(--fg); font-size: 18px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ── Search overlay ── */
+#searchOverlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0;
+  height: 52px; background: var(--bg2); z-index: 20;
+  padding: 0 12px; align-items: center; gap: 8px;
+  padding-top: var(--safe-top);
+}
+#searchOverlay.open { display: flex; }
+#searchOverlay input {
+  flex: 1; padding: 10px 16px; border-radius: 24px; border: 2px solid #333;
+  background: var(--bg3); color: var(--fg); font-size: 16px; outline: none;
+}
+#searchOverlay input:focus { border-color: var(--accent); }
+.search-close {
+  width: 38px; height: 38px; border-radius: 50%; background: none;
+  border: none; color: var(--fg); font-size: 22px; cursor: pointer;
+}
+
+/* ── Tab bar ── */
+#tabbar {
+  display: flex; background: var(--bg2); border-bottom: 1px solid #222;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#tabbar::-webkit-scrollbar { display: none; }
+.tab-btn {
+  flex-shrink: 0; padding: 12px 18px; background: none; border: none;
+  color: var(--fg-dim); font-size: 14px; font-weight: 600; cursor: pointer;
+  border-bottom: 3px solid transparent; white-space: nowrap;
+  transition: color 0.2s, border-color 0.2s;
+}
+.tab-btn.active { color: #fff; border-bottom-color: var(--accent); }
+
+/* ── Main content ── */
+#content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#app { display: flex; flex-direction: column; height: calc(100% - 52px); overflow: hidden; }
+
+/* ── Category bar (collapsible) ── */
+#catBar {
+  display: none; background: var(--bg2); border-bottom: 1px solid #222;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  padding: 0 8px; scrollbar-width: none;
+}
+#catBar::-webkit-scrollbar { display: none; }
+#catBar.visible { display: flex; }
+.cat-chip {
+  flex-shrink: 0; padding: 8px 14px; margin: 6px 4px; background: var(--bg3);
+  border: 2px solid transparent; border-radius: 20px; color: var(--fg-dim);
+  font-size: 13px; cursor: pointer; white-space: nowrap;
+  transition: all 0.2s;
+}
+.cat-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ── Channel list ── */
+#chPanel { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.ch-item {
+  display: flex; align-items: center; padding: 14px 18px;
+  border-bottom: 1px solid #1a1a1a; cursor: pointer;
+  transition: background 0.15s; gap: 12px;
+}
+.ch-item:active { background: var(--bg3); }
+.ch-item.active { background: var(--accent2); }
+.ch-fav { color: var(--accent); font-size: 14px; flex-shrink: 0; }
+.ch-name { flex: 1; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Section headers ── */
+.section-header {
+  padding: 10px 18px; font-size: 12px; font-weight: 700;
+  text-transform: uppercase; color: var(--accent); letter-spacing: 0.5px;
+  background: var(--bg3); border-bottom: 1px solid #222;
+}
+
+/* ── Now playing bar ── */
+#nowPlaying {
+  height: 48px; display: flex; align-items: center; padding: 0 18px;
+  background: var(--bg2); border-top: 1px solid #222;
+  padding-bottom: var(--safe-bottom); gap: 12px;
+  flex-shrink: 0;
+}
+#npLabel { flex: 1; font-size: 13px; color: var(--fg-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Empty state ── */
+.empty-state {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 8px; padding: 40px; opacity: 0.4;
+}
+.empty-icon { font-size: 48px; }
+.empty-text { font-size: 14px; color: var(--fg-dim); text-align: center; }
+
+/* ── Loader ── */
+#loader {
+  position: fixed; inset: 0; z-index: 100; display: flex;
+  flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.7); gap: 12px;
+}
+#loader.hidden { display: none; }
+.spinner {
+  width: 36px; height: 36px; border: 3px solid #333;
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loader-text { color: var(--fg-dim); font-size: 14px; }
+
+/* ── Toast notifications ── */
+.toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  background: #333; color: #fff; padding: 10px 24px; border-radius: 24px;
+  font-size: 14px; z-index: 50; opacity: 0; transition: opacity 0.3s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; }
+
+/* ── Fullscreen mode (video playing) ── */
+body.fs #topbar { display: none; }
+body.fs #app { height: 100%; }
+body.fs #tabbar { display: none; }
+body.fs #catBar { display: none !important; }
+body.fs #chPanel { display: none; }
+body.fs #nowPlaying { display: none; }
+</style>
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">IPTV</div>
+  <div class="topbar-spacer"></div>
+  <button class="search-toggle" id="searchBtn">🔍</button>
+</header>
+
+<div id="searchOverlay">
+  <input type="text" id="searchInput" placeholder="Search live channels..." autocomplete="off">
+  <button class="search-close" id="searchClose">✕</button>
+</div>
+
+<div id="app">
+  <nav id="tabbar">
+    <button class="tab-btn active" data-section="recent">Recent</button>
+    <button class="tab-btn" data-section="favs">★ Favs</button>
+    <button class="tab-btn" data-section="live">Live</button>
+    <button class="tab-btn" data-section="vod">Movies</button>
+    <button class="tab-btn" data-section="series">Series</button>
+  </nav>
+  <div id="catBar"></div>
+  <div id="chPanel"></div>
+  <div id="nowPlaying"><span id="npLabel">Select a channel</span></div>
+</div>
+
+<div id="loader" class="hidden">
+  <div class="spinner"></div>
+  <div class="loader-text">Loading…</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

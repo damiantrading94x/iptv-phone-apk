@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">#FF0f0f0f</item>
+        <item name="android:colorBackground">#FF0f0f0f</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:navigationBarColor">#FF0f0f0f</item>
+        <item name="android:statusBarColor">#FF0f0f0f</item>
+    </style>
+
+    <string name="app_name">IPTV Player</string>
+</resources>
