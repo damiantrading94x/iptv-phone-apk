@@ -17,6 +17,53 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent; }
 
+/* ── Setup screen ── */
+#setupScreen {
+  position: fixed; inset: 0; z-index: 200; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 32px;
+}
+.setup-card {
+  width: 100%; max-width: 400px; background: var(--bg2);
+  border-radius: 16px; padding: 32px 24px; border: 1px solid #222;
+}
+.setup-logo {
+  font-size: 36px; font-weight: 900; color: var(--accent);
+  text-align: center; margin-bottom: 4px; letter-spacing: -1px;
+}
+.setup-subtitle {
+  text-align: center; color: var(--fg-dim); font-size: 14px; margin-bottom: 24px;
+}
+.setup-field { margin-bottom: 16px; }
+.setup-field label {
+  display: block; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; color: var(--fg-dim); margin-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+.setup-field input {
+  width: 100%; padding: 12px 16px; border-radius: 10px;
+  border: 2px solid #333; background: var(--bg3); color: var(--fg);
+  font-size: 16px; outline: none; transition: border-color 0.2s;
+}
+.setup-field input:focus { border-color: var(--accent); }
+.setup-field input::placeholder { color: #555; }
+.setup-btn {
+  width: 100%; padding: 14px; border: none; border-radius: 10px;
+  background: var(--accent); color: #fff; font-size: 16px;
+  font-weight: 700; cursor: pointer; margin-top: 8px;
+  transition: background 0.2s;
+}
+.setup-btn:active { background: var(--accent2); }
+.setup-error {
+  color: var(--accent); font-size: 13px; text-align: center;
+  margin-top: 12px; min-height: 20px;
+}
+.setup-hint {
+  color: var(--fg-dim); font-size: 12px; text-align: center;
+  margin-top: 16px; line-height: 1.5;
+}
+#setupScreen.hidden { display: none; }
+
 /* ── Top bar ── */
 #topbar {
   height: 52px; background: var(--bg2); display: flex; align-items: center;
@@ -25,7 +72,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 }
 .brand { font-weight: 800; font-size: 20px; color: var(--accent); letter-spacing: -0.5px; }
 .topbar-spacer { flex: 1; }
-.search-toggle {
+.topbar-btn {
   width: 38px; height: 38px; border-radius: 50%; background: var(--bg3);
   border: none; color: var(--fg); font-size: 18px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
@@ -156,10 +203,34 @@ body.fs #nowPlaying { display: none; }
 </head>
 <body>
 
+<!-- Setup / Login screen -->
+<div id="setupScreen">
+  <div class="setup-card">
+    <div class="setup-logo">IPTV</div>
+    <div class="setup-subtitle">Enter your IPTV provider details</div>
+    <div class="setup-field">
+      <label>Server URL</label>
+      <input type="url" id="setupServer" placeholder="http://example.com:8080">
+    </div>
+    <div class="setup-field">
+      <label>Username</label>
+      <input type="text" id="setupUser" placeholder="Your username" autocapitalize="off">
+    </div>
+    <div class="setup-field">
+      <label>Password</label>
+      <input type="text" id="setupPass" placeholder="Your password" autocapitalize="off">
+    </div>
+    <button class="setup-btn" id="setupConnect">Connect</button>
+    <div class="setup-error" id="setupError"></div>
+    <div class="setup-hint">Your details are saved locally on this device.<br>Contact your IPTV provider for login info.</div>
+  </div>
+</div>
+
 <header id="topbar">
   <div class="brand">IPTV</div>
   <div class="topbar-spacer"></div>
-  <button class="search-toggle" id="searchBtn">🔍</button>
+  <button class="topbar-btn" id="searchBtn">🔍</button>
+  <button class="topbar-btn" id="settingsBtn">⚙</button>
 </header>
 
 <div id="searchOverlay">

@@ -6,9 +6,9 @@
 (function () {
   "use strict";
 
-  const SERVER   = "http://vpn.mojatv.online";
-  const USERNAME = "b0e44e84c3";
-  const PASSWORD = "8ffb557f0f2b";
+  let SERVER   = localStorage.getItem("iptv_server") || "";
+  let USERNAME = localStorage.getItem("iptv_user") || "";
+  let PASSWORD = localStorage.getItem("iptv_pass") || "";
 
   // ── DOM ───────────────────────────────────────────────────
   const loader      = document.getElementById("loader");
@@ -21,6 +21,14 @@
   const searchClose = document.getElementById("searchClose");
   const tabBtns     = document.querySelectorAll(".tab-btn");
   const toastEl     = document.getElementById("toast");
+  
+  const setupScreen = document.getElementById("setupScreen");
+  const setupServer = document.getElementById("setupServer");
+  const setupUser   = document.getElementById("setupUser");
+  const setupPass   = document.getElementById("setupPass");
+  const setupConnect= document.getElementById("setupConnect");
+  const setupError  = document.getElementById("setupError");
+  const settingsBtn = document.getElementById("settingsBtn");
 
   // ── State ─────────────────────────────────────────────────
   let section = "recent";
@@ -361,10 +369,21 @@
     const words = q.split(/\s+/);
     show(loader);
     try {
-      let all = allChannelsCache["live"];
+      let targetAction = "get_live_streams";
+      let cacheKey = "live";
+
+      if (section === "vod") {
+        targetAction = "get_vod_streams";
+        cacheKey = "vod";
+      } else if (section === "series") {
+        targetAction = "get_series";
+        cacheKey = "series";
+      }
+
+      let all = allChannelsCache[cacheKey];
       if (!all) {
-        all = await api("get_live_streams");
-        if (Array.isArray(all)) allChannelsCache["live"] = all;
+        all = await api(targetAction);
+        if (Array.isArray(all)) allChannelsCache[cacheKey] = all;
       }
       hide(loader);
       if (Array.isArray(all)) {
@@ -373,11 +392,13 @@
           return words.every(w => name.includes(w));
         });
 
-        // Switch to live tab
-        section = "live";
-        tabBtns.forEach(b => b.classList.remove("active"));
-        const liveBtn = document.querySelector('.tab-btn[data-section="live"]');
-        if (liveBtn) liveBtn.classList.add("active");
+        if (section === "recent" || section === "favs") {
+          // Switch to live tab
+          section = "live";
+          tabBtns.forEach(b => b.classList.remove("active"));
+          const liveBtn = document.querySelector('.tab-btn[data-section="live"]');
+          if (liveBtn) liveBtn.classList.add("active");
+        }
 
         catBar.classList.remove("visible");
         const total = results.length;
@@ -417,6 +438,69 @@
     }
   });
 
+  // ── Setup / Login ─────────────────────────────────────────
+  settingsBtn.addEventListener("click", () => {
+    setupServer.value = SERVER;
+    setupUser.value = USERNAME;
+    setupPass.value = PASSWORD;
+    setupError.textContent = "";
+    setupScreen.classList.remove("hidden");
+  });
+
+  setupConnect.addEventListener("click", async () => {
+    const s = setupServer.value.trim().replace(/\/$/, "");
+    const u = setupUser.value.trim();
+    const p = setupPass.value.trim();
+
+    if (!s || !u || !p) {
+      setupError.textContent = "Please fill in all fields.";
+      return;
+    }
+
+    setupConnect.textContent = "Connecting...";
+    setupConnect.disabled = true;
+    setupError.textContent = "";
+
+    try {
+      const url = `${s}/player_api.php?username=${u}&password=${p}`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const data = await resp.json();
+
+      if (data && data.user_info && data.user_info.auth === 1) {
+        SERVER = s;
+        USERNAME = u;
+        PASSWORD = p;
+        localStorage.setItem("iptv_server", s);
+        localStorage.setItem("iptv_user", u);
+        localStorage.setItem("iptv_pass", p);
+        
+        setupScreen.classList.add("hidden");
+        allChannelsCache = {};
+        if (section === "recent") loadRecent();
+        else if (section === "favs") loadFavorites();
+        else loadCategories();
+      } else {
+        setupError.textContent = "Invalid username or password.";
+      }
+    } catch (e) {
+      setupError.textContent = "Failed to connect to server.";
+    } finally {
+      setupConnect.textContent = "Connect";
+      setupConnect.disabled = false;
+    }
+  });
+
+  function checkSetup() {
+    if (!SERVER || !USERNAME || !PASSWORD) {
+      setupScreen.classList.remove("hidden");
+      return false;
+    }
+    setupScreen.classList.add("hidden");
+    return true;
+  }
+
   // ── Init ──────────────────────────────────────────────────
-  loadRecent();
+  if (checkSetup()) {
+    loadRecent();
+  }
 })();
