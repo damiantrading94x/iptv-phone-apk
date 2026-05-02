@@ -431,12 +431,7 @@
     });
   });
 
-  // ── Tap fullscreen video to exit ──────────────────────────
-  document.addEventListener("click", (e) => {
-    if (isFullscreen) {
-      exitFullscreen();
-    }
-  });
+  // ── Native player handles double-tap to exit ────────────────
 
   // ── Setup / Login ─────────────────────────────────────────
   settingsBtn.addEventListener("click", () => {

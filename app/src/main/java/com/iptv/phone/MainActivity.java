@@ -7,7 +7,9 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.GestureDetector;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
@@ -19,6 +21,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+import android.widget.MediaController;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -28,6 +31,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private WebView webView;
     private SurfaceView surfaceView;
     private MediaPlayer mediaPlayer;
+    private MediaController mediaController;
+    private GestureDetector gestureDetector;
     private String pendingUrl;
     private String currentUrl;
     private final Handler watchdog = new Handler(Looper.getMainLooper());
@@ -66,6 +71,51 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         surfaceView = new SurfaceView(this);
         surfaceView.setVisibility(View.GONE);
         surfaceView.getHolder().addCallback(this);
+
+        mediaController = new MediaController(this);
+        mediaController.setAnchorView(surfaceView);
+        mediaController.setMediaPlayer(new MediaController.MediaPlayerControl() {
+            @Override public void start() { if (mediaPlayer != null) mediaPlayer.start(); }
+            @Override public void pause() { if (mediaPlayer != null) mediaPlayer.pause(); }
+            @Override public int getDuration() { return mediaPlayer != null ? mediaPlayer.getDuration() : 0; }
+            @Override public int getCurrentPosition() { return mediaPlayer != null ? mediaPlayer.getCurrentPosition() : 0; }
+            @Override public void seekTo(int pos) { if (mediaPlayer != null) mediaPlayer.seekTo(pos); }
+            @Override public boolean isPlaying() { return mediaPlayer != null && mediaPlayer.isPlaying(); }
+            @Override public int getBufferPercentage() { return 0; }
+            @Override public boolean canPause() { return true; }
+            @Override public boolean canSeekBackward() { return true; }
+            @Override public boolean canSeekForward() { return true; }
+            @Override public int getAudioSessionId() { return mediaPlayer != null ? mediaPlayer.getAudioSessionId() : 0; }
+        });
+
+        gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public boolean onSingleTapConfirmed(MotionEvent e) {
+                if (mediaController.isShowing()) {
+                    mediaController.hide();
+                } else {
+                    mediaController.show(3000);
+                }
+                return true;
+            }
+
+            @Override
+            public boolean onDoubleTap(MotionEvent e) {
+                if (surfaceView.getVisibility() == View.VISIBLE) {
+                    stopNativePlayback();
+                    surfaceView.setVisibility(View.GONE);
+                    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                    webView.evaluateJavascript("if(window._onNativeBack) window._onNativeBack()", null);
+                }
+                return true;
+            }
+        });
+
+        surfaceView.setOnTouchListener((v, event) -> {
+            gestureDetector.onTouchEvent(event);
+            return true;
+        });
+
         frame.addView(surfaceView, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT));
@@ -182,6 +232,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private void stopNativePlayback() {
         pendingUrl = null;
         cancelWatchdog();
+        if (mediaController != null && mediaController.isShowing()) {
+            mediaController.hide();
+        }
         if (mediaPlayer != null) {
             try {
                 mediaPlayer.stop();
