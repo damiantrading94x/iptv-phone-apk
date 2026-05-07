@@ -150,6 +150,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         ws.setMediaPlaybackRequiresUserGesture(false);
         ws.setAllowFileAccess(true);
         ws.setAllowContentAccess(true);
+        try {
+            ws.setAllowUniversalAccessFromFileURLs(true);
+            ws.setAllowFileAccessFromFileURLs(true);
+        } catch (Exception ignored) {}
         ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         ws.setCacheMode(WebSettings.LOAD_NO_CACHE);
 

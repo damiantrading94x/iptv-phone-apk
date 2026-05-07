@@ -285,28 +285,94 @@
     playURL(url, name);
   }
 
+  // ── Video overlay ──────────────────────────────────────────
+  const videoOverlay = document.getElementById("videoOverlay");
+  const voSpinner    = document.getElementById("voSpinner");
+  const voIcon       = document.getElementById("voIcon");
+  const voText       = document.getElementById("voText");
+  const voSubtext    = document.getElementById("voSubtext");
+  let voHideTimer    = null;
+  let reconnectCount = 0;
+
+  function showVideoOverlay(opts) {
+    clearTimeout(voHideTimer);
+    if (opts.spinner) { voSpinner.style.display = "block"; voIcon.style.display = "none"; }
+    else if (opts.icon) { voSpinner.style.display = "none"; voIcon.style.display = "block"; voIcon.textContent = opts.icon; }
+    else { voSpinner.style.display = "none"; voIcon.style.display = "none"; }
+    voText.innerHTML = opts.text || "";
+    voSubtext.innerHTML = opts.subtext || "";
+    videoOverlay.classList.add("active");
+    if (opts.autohide) {
+      voHideTimer = setTimeout(() => hideVideoOverlay(), opts.autohide);
+    }
+  }
+
+  function hideVideoOverlay() {
+    clearTimeout(voHideTimer);
+    videoOverlay.classList.remove("active");
+  }
+
   // Native player callbacks
   window._onNativePlaying = () => {
+    reconnectCount = 0;
+    hideVideoOverlay();
     npLabel.textContent = "▶ " + currentName;
     enterFullscreen();
   };
   window._onNativeError = (what, extra) => {
     npLabel.textContent = `⚠ Playback error (${what})`;
+    showVideoOverlay({
+      icon: "⚠️",
+      text: "Playback Error",
+      subtext: `Could not play this stream (code ${what})`,
+      autohide: 5000
+    });
   };
   window._onNativeBuffering = (isBuffering) => {
-    npLabel.textContent = isBuffering ? `⏳ Buffering — ${currentName}` : "▶ " + currentName;
+    if (isBuffering) {
+      npLabel.textContent = `⏳ Buffering — ${currentName}`;
+      showVideoOverlay({
+        spinner: true,
+        text: `Buffering<span class="vo-dots"></span>`,
+        subtext: currentName
+      });
+    } else {
+      hideVideoOverlay();
+      npLabel.textContent = "▶ " + currentName;
+    }
   };
   window._onNativeReconnecting = () => {
+    reconnectCount++;
     npLabel.textContent = `🔄 Reconnecting — ${currentName}`;
+    const messages = [
+      "Stream interrupted, reconnecting",
+      "Still trying to reconnect",
+      "Connection unstable, retrying",
+      "Hang tight, almost there"
+    ];
+    const msg = messages[Math.min(reconnectCount - 1, messages.length - 1)];
+    showVideoOverlay({
+      spinner: true,
+      text: `${msg}<span class="vo-dots"></span>`,
+      subtext: `Attempt ${reconnectCount} · ${currentName}`
+    });
   };
   window._onNativeBack = () => {
+    hideVideoOverlay();
+    reconnectCount = 0;
     exitFullscreen();
   };
 
   function playURL(url, name) {
     currentName = name;
     currentPlayUrl = url;
+    reconnectCount = 0;
     npLabel.textContent = "⏳ Loading " + name + "…";
+    showVideoOverlay({
+      spinner: true,
+      text: `Loading<span class="vo-dots"></span>`,
+      subtext: name
+    });
 
     if (typeof NativePlayer !== "undefined") {
       NativePlayer.stop();
@@ -425,11 +491,295 @@
       // Close search if open
       searchOverlay.classList.remove("open");
       searchInput.value = "";
-      if (section === "recent") loadRecent();
-      else if (section === "favs") loadFavorites();
-      else loadCategories();
+      
+      const tvGuidePanel = document.getElementById("tvGuidePanel");
+      if (section === "tvguide") {
+        catBar.classList.remove("visible");
+        chPanel.style.display = "none";
+        tvGuidePanel.style.display = "block";
+        loadTVGuide();
+      } else {
+        tvGuidePanel.style.display = "none";
+        chPanel.style.display = "block";
+        if (section === "recent") loadRecent();
+        else if (section === "favs") loadFavorites();
+        else loadCategories();
+      }
     });
   });
+
+  // ── TV Guide ──────────────────────────────────────────────
+  const LSTV_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+  };
+  const TARGET_COUNTRIES = ["Poland", "Great Britain", "USA"];
+  const COUNTRY_FLAGS = {"Poland": "🇵🇱", "Great Britain": "🇬🇧", "USA": "🇺🇸"};
+  const COUNTRY_LABELS = {"Poland": "Poland", "Great Britain": "UK", "USA": "USA"};
+  let tvgSearchTimer = null;
+
+  async function loadTVGuide() {
+    const tvGuidePanel = document.getElementById("tvGuidePanel");
+    tvGuidePanel.innerHTML = `
+      <div style="display:flex; margin-bottom:16px;">
+        <input type="text" id="tvgSearch" placeholder="Search team or match..." 
+               style="flex:1; padding:12px; border-radius:10px; border:1px solid #333; background:var(--bg3); color:var(--fg); font-size:16px; outline:none;" />
+      </div>
+      <div id="tvgContent"></div>
+    `;
+    
+    const tvgSearch = document.getElementById("tvgSearch");
+    tvgSearch.addEventListener("input", () => {
+      clearTimeout(tvgSearchTimer);
+      tvgSearchTimer = setTimeout(() => {
+        const q = tvgSearch.value.trim();
+        if (q.length > 1) fetchTVGSearch(q);
+        else loadTodayMatches();
+      }, 500);
+    });
+
+    loadTodayMatches();
+  }
+
+  function tvgShowLoading(text = "Loading...") {
+    document.getElementById("tvgContent").innerHTML = `<div style="text-align:center; padding:40px; color:var(--fg-dim);">${text}</div>`;
+  }
+
+  function tvgShowEmpty(msg) {
+    document.getElementById("tvgContent").innerHTML = `
+      <div style="text-align:center; padding:40px;">
+        <div style="font-size:48px; margin-bottom:10px;">⚽</div>
+        <div style="color:var(--fg-dim);">${msg}</div>
+      </div>
+    `;
+  }
+
+  async function loadTodayMatches() {
+    tvgShowLoading("Loading today's matches...");
+    try {
+      const res = await fetch("https://www.livesoccertv.com/schedules/", { headers: LSTV_HEADERS });
+      const html = await res.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const matches = [];
+      const seen = new Set();
+      
+      doc.querySelectorAll("a").forEach(a => {
+        const href = a.getAttribute("href") || "";
+        if (!href.includes("/match/") || !href.includes("#")) return;
+        const matchId = href.split("#")[1];
+        const text = a.textContent.trim();
+        if (!text || seen.has(matchId)) return;
+        seen.add(matchId);
+        if (text.includes(" vs ") || text.includes(" - ")) {
+          matches.push({ id: matchId, title: text, url: href });
+        }
+      });
+
+      renderTodayMatches(matches.slice(0, 15));
+    } catch (e) {
+      console.error(e);
+      tvgShowEmpty("Failed to load today's matches.");
+    }
+  }
+
+  function renderTodayMatches(matches) {
+    const cont = document.getElementById("tvgContent");
+    if (!matches.length) {
+      tvgShowEmpty("No top matches found for today.");
+      return;
+    }
+    cont.innerHTML = `<div style="font-size:16px; font-weight:bold; margin-bottom:12px;">🔥 Today's Top Matches</div>`;
+    matches.forEach(m => {
+      const btn = document.createElement("div");
+      btn.style.cssText = "background:var(--bg3); padding:16px; border-radius:10px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;";
+      btn.innerHTML = `<div style="font-weight:bold;">🏟️ ${m.title}</div><div style="font-size:12px; color:var(--accent);">Channels ➔</div>`;
+      btn.addEventListener("click", () => loadBroadcast(m.id, m.title, "", "Today's Matches"));
+      cont.appendChild(btn);
+    });
+  }
+
+  async function fetchTVGSearch(query) {
+    tvgShowLoading("Searching...");
+    try {
+      const res = await fetch(`https://cdnapi.livesoccertv.com/autocomplete.php?q=${encodeURIComponent(query)}&iso=gb`, { headers: LSTV_HEADERS });
+      const data = await res.json();
+      const doc = new DOMParser().parseFromString(data.html || "", "text/html");
+      const results = [];
+      doc.querySelectorAll("div.hints").forEach(hint => {
+        const a = hint.querySelector("a");
+        if (!a) return;
+        const href = a.getAttribute("href") || "";
+        const actualUrl = href.includes("url=") ? decodeURIComponent(href.split("url=")[1]) : href;
+        const descEl = a.querySelector("div.sdesc");
+        const iconEl = a.querySelector("div.flaticon");
+        const fullText = a.textContent.trim();
+        const desc = descEl ? descEl.textContent.trim() : "";
+        const itemType = iconEl ? (iconEl.getAttribute("title") || "") : "";
+        const name = fullText.replace(desc, "").trim();
+        if (itemType.toLowerCase().includes("team")) {
+          results.push({ name, url: actualUrl, desc });
+        }
+      });
+      renderTVGSearch(results, query);
+    } catch (e) {
+      console.error(e);
+      tvgShowEmpty("Search failed. Please try again.");
+    }
+  }
+
+  function renderTVGSearch(results, query) {
+    const cont = document.getElementById("tvgContent");
+    if (!results.length) {
+      tvgShowEmpty(`No results found for '${query}'`);
+      return;
+    }
+    cont.innerHTML = `<div style="font-size:16px; font-weight:bold; margin-bottom:12px;">Results for '${query}'</div>`;
+    results.forEach(r => {
+      const btn = document.createElement("div");
+      btn.style.cssText = "background:var(--bg3); padding:16px; border-radius:10px; margin-bottom:8px; display:flex; align-items:center;";
+      btn.innerHTML = `<div style="font-size:24px; margin-right:12px;">⚽</div><div><div style="font-weight:bold; font-size:16px;">${r.name}</div><div style="font-size:12px; color:var(--fg-dim);">${r.desc || "Team"}</div></div>`;
+      btn.addEventListener("click", () => loadFixtures(r.url, r.name));
+      cont.appendChild(btn);
+    });
+  }
+
+  async function loadFixtures(teamUrl, teamName) {
+    tvgShowLoading(`Loading fixtures for ${teamName}...`);
+    try {
+      const res = await fetch(`https://www.livesoccertv.com${teamUrl}`, { headers: LSTV_HEADERS });
+      const html = await res.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const fixtures = [];
+      const seen = new Set();
+      doc.querySelectorAll("a").forEach(a => {
+        const href = a.getAttribute("href") || "";
+        if (!href.includes("/match/") || !href.includes("#")) return;
+        const matchId = href.split("#")[1];
+        const text = a.textContent.trim();
+        if (!text || seen.has(matchId)) return;
+        seen.add(matchId);
+        if (text.includes(" vs ") || text.includes(" - ")) {
+          fixtures.push({ id: matchId, title: text });
+        }
+      });
+      renderFixtures(fixtures, teamUrl, teamName);
+    } catch (e) {
+      console.error(e);
+      tvgShowEmpty("Failed to load fixtures.");
+    }
+  }
+
+  function renderFixtures(fixtures, teamUrl, teamName) {
+    const cont = document.getElementById("tvgContent");
+    cont.innerHTML = `
+      <div style="color:var(--accent); font-weight:bold; margin-bottom:12px; padding:8px 0;" onclick="document.getElementById('tvgSearch').dispatchEvent(new Event('input'))">← Back to search</div>
+      <div style="font-size:16px; font-weight:bold; margin-bottom:12px;">⚽ ${teamName} Fixtures</div>
+    `;
+    if (!fixtures.length) {
+      cont.innerHTML += `<div style="color:var(--fg-dim);">No upcoming fixtures found.</div>`;
+      return;
+    }
+    fixtures.forEach(f => {
+      const btn = document.createElement("div");
+      btn.style.cssText = "background:var(--bg3); padding:16px; border-radius:10px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;";
+      btn.innerHTML = `<div style="font-weight:bold;">🏟️ ${f.title}</div><div style="font-size:12px; color:var(--accent);">Channels ➔</div>`;
+      btn.addEventListener("click", () => loadBroadcast(f.id, f.title, teamUrl, teamName));
+      cont.appendChild(btn);
+    });
+  }
+
+  async function loadBroadcast(matchId, matchTitle, teamUrl, teamName) {
+    tvgShowLoading("Loading TV channels...");
+    try {
+      const res = await fetch(`https://www.livesoccertv.com/match/${matchId}/`, { headers: LSTV_HEADERS });
+      if (!res.ok) throw new Error("Match not found");
+      const html = await res.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const table = doc.querySelector("table.ichannels");
+      const broadcasts = {};
+      
+      if (table) {
+        table.querySelectorAll("tr").forEach(tr => {
+          const tds = tr.querySelectorAll("td");
+          if (tds.length < 2) return;
+          const country = tds[0].textContent.trim();
+          if (!TARGET_COUNTRIES.includes(country)) return;
+          
+          const channels = [];
+          tds[1].querySelectorAll("a").forEach(a => {
+            const name = a.textContent.trim();
+            const cls = a.className || "";
+            channels.push({ name, stream: cls.includes("ministream") });
+          });
+          broadcasts[country] = channels;
+        });
+      }
+      renderBroadcast(broadcasts, matchTitle, teamUrl, teamName);
+    } catch (e) {
+      console.error(e);
+      tvgShowEmpty("Failed to load TV channels.");
+    }
+  }
+
+  function renderBroadcast(broadcasts, matchTitle, teamUrl, teamName) {
+    const cont = document.getElementById("tvgContent");
+    cont.innerHTML = `
+      <div id="tvgBackBtn" style="color:var(--accent); font-weight:bold; margin-bottom:12px; padding:8px 0;">← Back</div>
+      <div style="font-size:16px; font-weight:bold; margin-bottom:16px;">📺 ${matchTitle}</div>
+    `;
+    
+    document.getElementById("tvgBackBtn").addEventListener("click", () => {
+      if (teamUrl === "") loadTodayMatches();
+      else loadFixtures(teamUrl, teamName);
+    });
+
+    if (Object.keys(broadcasts).length === 0) {
+      cont.innerHTML += `<div style="color:var(--fg-dim);">No broadcast info available for Poland, UK, or USA.</div>`;
+      return;
+    }
+
+    TARGET_COUNTRIES.forEach(country => {
+      const channels = broadcasts[country] || [];
+      const flag = COUNTRY_FLAGS[country] || "";
+      const label = COUNTRY_LABELS[country] || country;
+      
+      const card = document.createElement("div");
+      card.style.cssText = "background:var(--bg3); border-radius:10px; margin-bottom:12px; padding:16px;";
+      card.innerHTML = `<div style="font-weight:bold; font-size:14px; margin-bottom:12px;">${flag} ${label.toUpperCase()}</div>`;
+      
+      if (!channels.length) {
+        card.innerHTML += `<div style="color:var(--fg-dim); font-size:12px; font-style:italic;">No channels listed</div>`;
+      } else {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:flex; flex-wrap:wrap; gap:8px;";
+        channels.forEach(ch => {
+          const icon = ch.stream ? "🌐" : "📺";
+          const color = ch.stream ? "var(--accent)" : "var(--fg)";
+          const tag = document.createElement("div");
+          tag.style.cssText = `background:#2a2a2a; padding:6px 10px; border-radius:6px; font-size:13px; font-weight:bold; color:${color};`;
+          tag.textContent = `${icon} ${ch.name}`;
+          
+          tag.addEventListener("click", () => {
+             // trigger app search for the channel name!
+             tabBtns.forEach(b => b.classList.remove("active"));
+             const liveBtn = document.querySelector('.tab-btn[data-section="live"]');
+             if (liveBtn) liveBtn.classList.add("active");
+             section = "live";
+             document.getElementById("tvGuidePanel").style.display = "none";
+             chPanel.style.display = "block";
+             
+             searchOverlay.classList.add("open");
+             searchInput.value = ch.name;
+             searchInput.focus();
+             doSearch();
+          });
+          
+          wrap.appendChild(tag);
+        });
+        card.appendChild(wrap);
+      }
+      cont.appendChild(card);
+    });
+  }
 
   // ── Native player handles double-tap to exit ────────────────
 
