@@ -767,8 +767,9 @@
              document.getElementById("tvGuidePanel").style.display = "none";
              chPanel.style.display = "block";
              
-             searchOverlay.classList.add("open");
-             searchInput.value = ch.name;
+             // Strip country suffix from channel name for better IPTV search matching
+             const cleanName = ch.name.replace(/\s+(Poland|Great Britain|UK|USA|United Kingdom|United States|Germany|France|Spain|Italy|Netherlands|Portugal|Belgium|Ireland|Canada|Australia)\s*$/i, "").trim();
+             searchInput.value = cleanName;
              searchInput.focus();
              doSearch();
           });
