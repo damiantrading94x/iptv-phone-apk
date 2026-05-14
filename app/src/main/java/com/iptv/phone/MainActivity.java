@@ -2,7 +2,6 @@ package com.iptv.phone;
 
 import android.app.Activity;
 import android.content.pm.ActivityInfo;
-import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -23,18 +22,26 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.MediaController;
 
-import java.util.HashMap;
-import java.util.Map;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.exoplayer.DefaultLoadControl;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 
 public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private WebView webView;
     private SurfaceView surfaceView;
-    private MediaPlayer mediaPlayer;
+    private ExoPlayer player;
     private MediaController mediaController;
     private GestureDetector gestureDetector;
     private String pendingUrl;
     private String currentUrl;
+    private int retryCount = 0;
+    private static final int MAX_RETRIES = 3;
+    private static final long RETRY_DELAY_MS = 1500;
     private final Handler watchdog = new Handler(Looper.getMainLooper());
     private static final long FREEZE_TIMEOUT_MS = 30000;
 
@@ -76,37 +83,40 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         mediaController.setAnchorView(surfaceView);
         mediaController.setMediaPlayer(new MediaController.MediaPlayerControl() {
             @Override public void start() {
-                if (mediaPlayer != null) {
-                    try { mediaPlayer.start(); } catch (Exception ignored) {}
+                if (player != null) {
+                    try { player.play(); } catch (Exception ignored) {}
                 }
             }
             @Override public void pause() {
-                if (mediaPlayer != null) {
-                    try { mediaPlayer.pause(); } catch (Exception ignored) {}
+                if (player != null) {
+                    try { player.pause(); } catch (Exception ignored) {}
                 }
             }
             @Override public int getDuration() {
-                if (mediaPlayer == null) return 0;
-                try { return mediaPlayer.getDuration(); } catch (Exception e) { return 0; }
+                if (player == null) return 0;
+                try { return (int) player.getDuration(); } catch (Exception e) { return 0; }
             }
             @Override public int getCurrentPosition() {
-                if (mediaPlayer == null) return 0;
-                try { return mediaPlayer.getCurrentPosition(); } catch (Exception e) { return 0; }
+                if (player == null) return 0;
+                try { return (int) player.getCurrentPosition(); } catch (Exception e) { return 0; }
             }
             @Override public void seekTo(int pos) {
-                if (mediaPlayer != null) {
-                    try { mediaPlayer.seekTo(pos); } catch (Exception ignored) {}
+                if (player != null) {
+                    try { player.seekTo(pos); } catch (Exception ignored) {}
                 }
             }
             @Override public boolean isPlaying() {
-                if (mediaPlayer == null) return false;
-                try { return mediaPlayer.isPlaying(); } catch (Exception e) { return false; }
+                if (player == null) return false;
+                try { return player.isPlaying(); } catch (Exception e) { return false; }
             }
-            @Override public int getBufferPercentage() { return 0; }
+            @Override public int getBufferPercentage() {
+                if (player == null) return 0;
+                try { return player.getBufferedPercentage(); } catch (Exception e) { return 0; }
+            }
             @Override public boolean canPause() { return true; }
             @Override public boolean canSeekBackward() { return true; }
             @Override public boolean canSeekForward() { return true; }
-            @Override public int getAudioSessionId() { return mediaPlayer != null ? mediaPlayer.getAudioSessionId() : 0; }
+            @Override public int getAudioSessionId() { return 0; }
         });
 
         gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
@@ -212,45 +222,95 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private void doPlay(String url) {
         try {
-            mediaPlayer = new MediaPlayer();
-            mediaPlayer.setSurface(surfaceView.getHolder().getSurface());
+            if (player != null) {
+                player.release();
+            }
 
-            Map<String, String> headers = new HashMap<>();
-            headers.put("User-Agent", "Mozilla/5.0");
+            // Aggressive buffer for spotty 4G/5G connections
+            DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    15000,   // min buffer before playing
+                    50000,   // max buffer (up to 50s)
+                    2500,    // required buffer to start playback
+                    5000     // required buffer to resume after rebuffering
+                )
+                .build();
 
-            mediaPlayer.setDataSource(this, Uri.parse(url), headers);
-            mediaPlayer.setOnPreparedListener(mp -> {
-                mp.start();
-                cancelWatchdog();
-                webView.post(() -> webView.evaluateJavascript(
-                    "if(window._onNativePlaying) window._onNativePlaying()", null));
-            });
-            mediaPlayer.setOnErrorListener((mp, what, extra) -> {
-                cancelWatchdog();
-                webView.post(() -> webView.evaluateJavascript(
-                    "if(window._onNativeError) window._onNativeError(" + what + "," + extra + ")", null));
-                return true;
-            });
-            mediaPlayer.setOnInfoListener((mp, what, extra) -> {
-                if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START) {
-                    startWatchdog();
-                    if (webView != null) {
-                        webView.post(() -> webView.evaluateJavascript(
-                            "if(window._onNativeBuffering) window._onNativeBuffering(true)", null));
-                    }
-                } else if (what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
-                    cancelWatchdog();
-                    if (webView != null) {
-                        webView.post(() -> webView.evaluateJavascript(
-                            "if(window._onNativeBuffering) window._onNativeBuffering(false)", null));
+            DefaultHttpDataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
+                .setUserAgent("Mozilla/5.0")
+                .setConnectTimeoutMs(15000)
+                .setReadTimeoutMs(15000)
+                .setAllowCrossProtocolRedirects(true);
+
+            DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(this)
+                .setDataSourceFactory(dataSourceFactory);
+
+            player = new ExoPlayer.Builder(this)
+                .setMediaSourceFactory(mediaSourceFactory)
+                .setLoadControl(loadControl)
+                .build();
+
+            player.setVideoSurface(surfaceView.getHolder().getSurface());
+
+            MediaItem mediaItem = MediaItem.fromUri(Uri.parse(url));
+            player.setMediaItem(mediaItem);
+
+            player.addListener(new Player.Listener() {
+                @Override
+                public void onPlaybackStateChanged(int playbackState) {
+                    if (playbackState == Player.STATE_READY) {
+                        retryCount = 0;
+                        cancelWatchdog();
+                        if (webView != null) {
+                            webView.post(() -> webView.evaluateJavascript(
+                                "if(window._onNativeBuffering) window._onNativeBuffering(false)", null));
+                            webView.post(() -> webView.evaluateJavascript(
+                                "if(window._onNativePlaying) window._onNativePlaying()", null));
+                        }
+                    } else if (playbackState == Player.STATE_BUFFERING) {
+                        startWatchdog();
+                        if (webView != null) {
+                            webView.post(() -> webView.evaluateJavascript(
+                                "if(window._onNativeBuffering) window._onNativeBuffering(true)", null));
+                        }
                     }
                 }
-                return false;
+
+                @Override
+                public void onPlayerError(PlaybackException error) {
+                    cancelWatchdog();
+                    int code = error.errorCode;
+                    // Auto-retry on transient errors
+                    if (retryCount < MAX_RETRIES) {
+                        retryCount++;
+                        if (webView != null) {
+                            webView.post(() -> webView.evaluateJavascript(
+                                "if(window._onNativeReconnecting) window._onNativeReconnecting()", null));
+                        }
+                        watchdog.postDelayed(() -> {
+                            if (currentUrl != null) startNativePlayback(currentUrl);
+                        }, RETRY_DELAY_MS);
+                        return;
+                    }
+                    // Retries exhausted
+                    retryCount = 0;
+                    surfaceView.setVisibility(View.GONE);
+                    if (webView != null) {
+                        webView.post(() -> webView.evaluateJavascript(
+                            "if(window._onNativeError) window._onNativeError(" + code + ", 0)", null));
+                    }
+                }
             });
-            mediaPlayer.prepareAsync();
+
+            player.prepare();
+            player.play();
         } catch (Exception e) {
-            webView.post(() -> webView.evaluateJavascript(
-                "if(window._onNativeError) window._onNativeError(-1,0)", null));
+            e.printStackTrace();
+            surfaceView.setVisibility(View.GONE);
+            if (webView != null) {
+                webView.post(() -> webView.evaluateJavascript(
+                    "if(window._onNativeError) window._onNativeError(-1,0)", null));
+            }
         }
     }
 
@@ -260,12 +320,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (mediaController != null && mediaController.isShowing()) {
             mediaController.hide();
         }
-        if (mediaPlayer != null) {
+        if (player != null) {
             try {
-                mediaPlayer.stop();
-                mediaPlayer.release();
+                player.stop();
+                player.release();
             } catch (Exception ignored) {}
-            mediaPlayer = null;
+            player = null;
         }
     }
 
