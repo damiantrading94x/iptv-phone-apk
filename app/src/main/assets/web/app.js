@@ -6,9 +6,25 @@
 (function () {
   "use strict";
 
-  let SERVER   = localStorage.getItem("iptv_server") || "";
-  let USERNAME = localStorage.getItem("iptv_user") || "";
-  let PASSWORD = localStorage.getItem("iptv_pass") || "";
+  // Legacy migration
+  if (!localStorage.getItem("iptv_active_slot")) {
+    const legServer = localStorage.getItem("iptv_server");
+    const legUser = localStorage.getItem("iptv_user");
+    const legPass = localStorage.getItem("iptv_pass");
+    if (legServer && legUser && legPass) {
+      localStorage.setItem("iptv_server_slot_1", legServer);
+      localStorage.setItem("iptv_user_slot_1", legUser);
+      localStorage.setItem("iptv_pass_slot_1", legPass);
+    }
+    localStorage.setItem("iptv_active_slot", "1");
+  }
+
+  let activeSlot = localStorage.getItem("iptv_active_slot") || "1";
+  let tempActiveSlot = activeSlot;
+
+  let SERVER   = localStorage.getItem("iptv_server_slot_" + activeSlot) || "";
+  let USERNAME = localStorage.getItem("iptv_user_slot_" + activeSlot) || "";
+  let PASSWORD = localStorage.getItem("iptv_pass_slot_" + activeSlot) || "";
 
   // ── DOM ───────────────────────────────────────────────────
   const loader      = document.getElementById("loader");
@@ -29,6 +45,8 @@
   const setupConnect= document.getElementById("setupConnect");
   const setupError  = document.getElementById("setupError");
   const settingsBtn = document.getElementById("settingsBtn");
+  const setupBackBtn = document.getElementById("setupBack");
+  const slotBtns    = document.querySelectorAll(".slot-btn");
 
   // ── State ─────────────────────────────────────────────────
   let section = "recent";
@@ -785,12 +803,39 @@
   // ── Native player handles double-tap to exit ────────────────
 
   // ── Setup / Login ─────────────────────────────────────────
+  function loadSlotIntoInputs(slotNum) {
+    setupServer.value = localStorage.getItem("iptv_server_slot_" + slotNum) || "";
+    setupUser.value = localStorage.getItem("iptv_user_slot_" + slotNum) || "";
+    setupPass.value = localStorage.getItem("iptv_pass_slot_" + slotNum) || "";
+    
+    slotBtns.forEach(btn => {
+      if (btn.dataset.slot === String(slotNum)) {
+        btn.classList.add("active");
+      } else {
+        btn.classList.remove("active");
+      }
+    });
+  }
+
   settingsBtn.addEventListener("click", () => {
-    setupServer.value = SERVER;
-    setupUser.value = USERNAME;
-    setupPass.value = PASSWORD;
+    tempActiveSlot = activeSlot;
+    loadSlotIntoInputs(activeSlot);
     setupError.textContent = "";
+    setupBackBtn.style.display = "flex";
     setupScreen.classList.remove("hidden");
+  });
+
+  setupBackBtn.addEventListener("click", () => {
+    tempActiveSlot = activeSlot;
+    setupScreen.classList.add("hidden");
+  });
+
+  slotBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const slotNum = btn.dataset.slot;
+      tempActiveSlot = slotNum;
+      loadSlotIntoInputs(slotNum);
+    });
   });
 
   setupConnect.addEventListener("click", async () => {
@@ -816,10 +861,18 @@
         SERVER = s;
         USERNAME = u;
         PASSWORD = p;
+
+        activeSlot = tempActiveSlot;
+        localStorage.setItem("iptv_active_slot", activeSlot);
+        localStorage.setItem("iptv_server_slot_" + activeSlot, s);
+        localStorage.setItem("iptv_user_slot_" + activeSlot, u);
+        localStorage.setItem("iptv_pass_slot_" + activeSlot, p);
+
         localStorage.setItem("iptv_server", s);
         localStorage.setItem("iptv_user", u);
         localStorage.setItem("iptv_pass", p);
         
+        setupBackBtn.style.display = "flex";
         setupScreen.classList.add("hidden");
         allChannelsCache = {};
         if (section === "recent") loadRecent();
@@ -838,9 +891,12 @@
 
   function checkSetup() {
     if (!SERVER || !USERNAME || !PASSWORD) {
+      setupBackBtn.style.display = "none";
       setupScreen.classList.remove("hidden");
+      loadSlotIntoInputs(activeSlot);
       return false;
     }
+    setupBackBtn.style.display = "flex";
     setupScreen.classList.add("hidden");
     return true;
   }

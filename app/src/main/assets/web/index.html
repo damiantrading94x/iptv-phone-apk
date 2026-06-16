@@ -24,8 +24,53 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
   justify-content: center; padding: 32px;
 }
 .setup-card {
+  position: relative;
   width: 100%; max-width: 400px; background: var(--bg2);
   border-radius: 16px; padding: 32px 24px; border: 1px solid #222;
+}
+.setup-back-btn {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--bg3);
+  border: none;
+  color: var(--fg);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, color 0.2s;
+}
+.setup-back-btn:active {
+  background: var(--accent);
+  color: #fff;
+}
+.setup-slots {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.slot-btn {
+  flex: 1;
+  padding: 10px;
+  border-radius: 8px;
+  border: 2px solid #333;
+  background: var(--bg3);
+  color: var(--fg-dim);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+.slot-btn.active {
+  border-color: var(--accent);
+  color: #fff;
+  background: rgba(229, 9, 20, 0.15);
 }
 .setup-logo {
   font-size: 36px; font-weight: 900; color: var(--accent);
@@ -236,8 +281,14 @@ body.fs #nowPlaying { display: none; }
 <!-- Setup / Login screen -->
 <div id="setupScreen">
   <div class="setup-card">
+    <button id="setupBack" class="setup-back-btn">←</button>
     <div class="setup-logo">IPTV</div>
     <div class="setup-subtitle">Enter your IPTV provider details</div>
+    <div class="setup-slots">
+      <button type="button" class="slot-btn" data-slot="1">Slot 1</button>
+      <button type="button" class="slot-btn" data-slot="2">Slot 2</button>
+      <button type="button" class="slot-btn" data-slot="3">Slot 3</button>
+    </div>
     <div class="setup-field">
       <label>Server URL</label>
       <input type="url" id="setupServer" placeholder="http://example.com:8080">
